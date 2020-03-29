@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
+from nltk import pos_tag
 from prepro_util import *
 from hotpot_evaluate_v1 import f1_score as hotpot_f1_score
 
@@ -801,6 +802,9 @@ def span_convert_examples_to_features(logger, examples, tokenizer, max_seq_lengt
         tok_to_orig_index = []
         orig_to_tok_index = []
         all_doc_tokens = []
+
+        example_pos_tags = [tag for tag, _ in pos_tag(example.doc_tokens)]
+
         for (i, token) in enumerate(example.doc_tokens):
             orig_to_tok_index.append(len(all_doc_tokens))
             sub_tokens = tokenizer.tokenize(token)
@@ -827,6 +831,7 @@ def span_convert_examples_to_features(logger, examples, tokenizer, max_seq_lengt
         token_to_orig_map = {}
         token_is_max_context = {}
         segment_ids = []
+        input_mask = []
 
         for i in range(len(all_doc_tokens)):
             #if i+1==len(all_doc_tokens) or  tok_to_orig_index[i]<tok_to_orig_index[i+1]:
@@ -834,11 +839,21 @@ def span_convert_examples_to_features(logger, examples, tokenizer, max_seq_lengt
             #token_is_max_context[len(tokens)] = False
             tokens.append(all_doc_tokens[i])
             segment_ids.append(1)
+
+            # Give higher attention weights to NN, JJ
+            orig_idx = tok_to_orig_index[i]
+            cur_pos_tag = example_pos_tags[orig_idx]
+            if cur_pos_tag.startswith('NN') or cur_pos_tag.startswith('JJ'):
+                input_mask.append(1)
+            else:
+                input_mask.append(0.2)
+
         tokens.append("[SEP]")
         segment_ids.append(1)
+        input_mask.append(1)
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
-        input_mask = [1] * len(input_ids)
+        # input_mask = [1] * len(input_ids)
 
         # Zero-pad up to the sequence length.
         while len(input_ids) < max_seq_length:
